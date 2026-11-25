@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>예약 브라우저 캡처</title><link rel="stylesheet" href="style.css"></head>
+<body><main><header><h1>예약 브라우저 캡처</h1><p>열려 있는 웹사이트 탭마다 캡처 일정을 설정합니다.</p></header>
+<div class="notice">브라우저가 실행 중일 때 동작합니다. 다른 탭이 선택되어 있어도 캡처를 시도합니다. 페이지, 절전 상태, 개발자 도구 사용 여부에 따라 실패할 수 있습니다.</div>
+<section><h2 id="formTitle">새 캡처 일정</h2><form id="form">
+<label>대상 탭 <select id="tab" required></select></label><button type="button" id="refresh" class="secondary">탭 목록 새로고침</button>
+<div class="grid"><label>사이트 접두어 <input id="prefix" value="모니터링" required maxlength="100"></label><label>파일 이름 형식 <input id="template" value="{prefix}_{YY}.{MM}.{DD} {HH}-{mm}" required></label></div>
+<p class="hint">사용 가능: {prefix}, {YYYY}, {YY}, {MM}, {DD}, {HH}, {mm}, {ss}. Windows에서 : 문자는 파일 이름에 사용할 수 없어 시간 구분에 -를 사용합니다.</p>
+<label>다운로드 폴더 안의 하위 폴더 <input id="directory" placeholder="예: 모니터링/사이트A"></label><p class="hint">비워 두면 기본 다운로드 폴더에 저장합니다. 다른 위치를 원하면 브라우저 설정에서 기본 다운로드 위치를 변경하세요. 자동 저장을 위해 ‘다운로드 전에 각 파일의 저장 위치 확인’을 꺼주세요.</p>
+<div class="grid"><label>반복 방식 <select id="mode"><option value="hourly">매시 지정한 분</option><option value="interval">매시 N분 간격</option></select></label><label id="minuteLabel">매시 몇 분 <input type="number" id="minute" min="0" max="59" value="0"></label><label id="intervalLabel" hidden>분 간격 <input type="number" id="interval" min="1" max="60" value="10"></label></div>
+<p class="hint">예: 매시 0분은 정각, 15분 간격은 매시 00·15·30·45분입니다. 예약은 정확히 해당 시각을 보장하지 않으며 컴퓨터가 절전 중이면 지연될 수 있습니다.</p>
+<label class="check"><input type="checkbox" id="enabled" checked> 일정 활성화</label><div class="actions"><button type="submit">일정 저장</button><button type="button" id="cancel" class="secondary" hidden>수정 취소</button></div><p id="message" role="status"></p></form></section>
+<section><div class="heading"><h2>등록된 일정</h2><button id="reload" type="button" class="secondary">상태 새로고침</button></div><div id="jobs"></div></section>
+<footer>캡처 중 브라우저에 디버깅 안내가 표시될 수 있습니다. 브라우저를 다시 시작하면 안전을 위해 일정을 중지하며 탭을 다시 지정해야 합니다.</footer></main><script src="options.js"></script></body></html>
