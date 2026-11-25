@@ -1,6 +1,20 @@
 const $ = id => document.getElementById(id);
 let editing = null;
 let jobs = [];
+const themes = ['cream', 'pink', 'blue', 'lavender'];
+function applyTheme(value) {
+  const theme = themes.includes(value) ? value : 'cream';
+  document.documentElement.dataset.theme = theme;
+  $('theme').value = theme;
+}
+async function loadTheme() { applyTheme((await chrome.storage.local.get('theme')).theme); }
+$('theme').addEventListener('change', async () => {
+  const theme = $('theme').value;
+  applyTheme(theme);
+  try { await chrome.storage.local.set({theme}); }
+  catch (error) { $('message').textContent = '테마를 저장하지 못했습니다: ' + error.message; await loadTheme(); }
+});
+loadTheme();
 async function send(message) { const result = await chrome.runtime.sendMessage(message); if (!result.ok) throw new Error(result.error); return result; }
 async function tabs(selected) {
   const all = await chrome.tabs.query({});
@@ -21,8 +35,21 @@ async function render() {
   const root = $('jobs'); root.replaceChildren();
   if (!jobs.length) { root.append(text('p', '등록된 일정이 없습니다.', 'meta')); return; }
   for (const job of jobs) {
-    const card = document.createElement('div'); card.className = 'job';
-    card.append(text('strong', `${job.prefix} · ${job.enabled ? '활성' : '중지'}`));
+    const card = document.createElement('div'); card.className = `job ${job.enabled ? 'job-enabled' : 'job-disabled'}`;
+    const heading = document.createElement('div'); heading.className = 'job-heading';
+    heading.append(text('strong', job.prefix));
+    const toggleLabel = document.createElement('label'); toggleLabel.className = 'job-toggle';
+    const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = job.enabled;
+    toggle.setAttribute('role', 'switch'); toggle.setAttribute('aria-label', `${job.prefix} 일정 활성화`);
+    toggle.addEventListener('change', async () => {
+      toggle.disabled = true;
+      try { $('message').textContent = ''; await send({type:'toggle', id:job.id, enabled:toggle.checked}); }
+      catch (error) { $('message').textContent = error.message; }
+      finally { await render(); }
+    });
+    const track = document.createElement('span'); track.className = 'toggle-track'; track.setAttribute('aria-hidden', 'true');
+    toggleLabel.append(toggle, track, text('span', job.enabled ? '활성' : '비활성', 'toggle-status'));
+    heading.append(toggleLabel); card.append(heading);
     card.append(text('div', `${job.origin} · 탭 ${job.tabId} · ${job.mode === 'hourly' ? `매시 ${job.minute}분` : `매시 ${job.interval}분 간격`}`, 'meta'));
     card.append(text('div', `저장: ${job.directory || '(다운로드 폴더)'}/${job.template}.png`, 'meta'));
     card.append(text('div', job.lastStatus ? `최근 상태: ${job.lastStatus}${job.lastAt ? ' (' + new Date(job.lastAt).toLocaleString('ko-KR') + ')' : ''}` : '아직 캡처 기록이 없습니다.', 'meta'));
@@ -56,5 +83,5 @@ $('form').addEventListener('submit', async e => {
     reset(); await render();
   } catch (error) { $('message').textContent = error.message; }
 });
-chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.jobs) render(); });
+chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.jobs) render(); if (area === 'local' && changes.theme) applyTheme(changes.theme.newValue); });
 modeChanged(); tabs(); render();

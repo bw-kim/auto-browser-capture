@@ -76,6 +76,7 @@ chrome.runtime.onStartup.addListener(async () => {
   const jobs = await getJobs();
   for (const job of jobs) {
     job.enabled = false;
+    job.needsRebind = true;
     job.lastStatus = '브라우저가 다시 시작되었습니다. 탭을 다시 지정하고 활성화하세요.';
     await chrome.alarms.clear(PREFIX + job.id);
   }
@@ -89,9 +90,24 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const tab = await chrome.tabs.get(job.tabId);
       if (!tab.url || !/^https?:\/\//i.test(tab.url)) throw new Error('HTTP 또는 HTTPS 웹사이트 탭을 선택하세요.');
       job.origin = new URL(tab.url).origin;
+      job.needsRebind = false;
       const jobs = await getJobs();
       const index = jobs.findIndex(j => j.id === job.id);
       if (index >= 0) jobs[index] = {...jobs[index], ...job}; else jobs.push(job);
+      await chrome.storage.local.set({jobs});
+      await schedule(job);
+      return {ok: true};
+    }
+    if (message.type === 'toggle') {
+      const jobs = await getJobs();
+      const job = jobs.find(j => j.id === message.id);
+      if (!job) throw new Error('설정을 찾을 수 없습니다.');
+      if (message.enabled) {
+        if (job.needsRebind || (job.needsRebind == null && job.lastStatus?.startsWith('브라우저가 다시 시작되었습니다.'))) throw new Error('브라우저가 다시 시작되었습니다. 수정을 눌러 탭을 다시 지정하세요.');
+        const tab = await chrome.tabs.get(job.tabId).catch(() => null);
+        if (!tab?.url || !/^https?:\/\//i.test(tab.url) || new URL(tab.url).origin !== job.origin) throw new Error('대상 탭을 찾을 수 없습니다. 수정을 눌러 탭을 다시 지정하세요.');
+      }
+      job.enabled = Boolean(message.enabled);
       await chrome.storage.local.set({jobs});
       await schedule(job);
       return {ok: true};
