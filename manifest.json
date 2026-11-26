@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "예약 브라우저 캡처",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "탭별 일정에 따라 화면을 캡처하여 저장합니다.",
   "minimum_chrome_version": "120",
   "permissions": [

@@ -16,16 +16,26 @@ $('theme').addEventListener('change', async () => {
 });
 loadTheme();
 async function send(message) { const result = await chrome.runtime.sendMessage(message); if (!result.ok) throw new Error(result.error); return result; }
+async function showTabDetails() {
+  const details = $('tabDetails');
+  const tab = $('tab').value ? await chrome.tabs.get(Number($('tab').value)).catch(() => null) : null;
+  details.replaceChildren();
+  $('showTab').disabled = !tab;
+  if (!tab) { details.textContent = '확인할 탭을 선택해 주세요.'; return; }
+  details.append(text('div', `창 ${tab.windowId} · ${tab.index + 1}번째 탭 · 탭 ID ${tab.id}`, 'tab-location'), text('div', tab.url || '', 'tab-url'));
+}
+async function markTab(tabId, expectedOrigin) { await send({type:'highlight', tabId, origin:expectedOrigin}); }
 async function tabs(selected) {
   const all = await chrome.tabs.query({});
   const list = all.filter(t => /^https?:\/\//i.test(t.url || ''));
   $('tab').replaceChildren();
-  for (const t of list) { const option = document.createElement('option'); option.value = t.id; option.textContent = `${t.title || t.url} — 창 ${t.windowId}`; $('tab').append(option); }
+  for (const t of list) { const option = document.createElement('option'); option.value = t.id; option.textContent = `창 ${t.windowId} · ${t.index + 1}번째 탭 · ${t.title || t.url} (ID ${t.id})`; $('tab').append(option); }
   if (selected != null) {
     $('tab').value = String(selected);
     if (!$('tab').value) { const missing = document.createElement('option'); missing.value = ''; missing.textContent = '기존 탭을 찾을 수 없습니다. 탭을 다시 선택하세요'; missing.selected = true; $('tab').prepend(missing); }
   }
   if (!list.length) { const option = document.createElement('option'); option.textContent = '열려 있는 웹사이트 탭이 없습니다'; option.value = ''; $('tab').append(option); }
+  await showTabDetails();
 }
 function modeChanged() { $('minuteLabel').hidden = $('mode').value !== 'hourly'; $('intervalLabel').hidden = $('mode').value !== 'interval'; }
 function reset() { editing = null; $('form').reset(); $('formTitle').textContent = '새 캡처 일정'; $('cancel').hidden = true; $('message').textContent = ''; modeChanged(); }
@@ -54,10 +64,14 @@ async function render() {
     card.append(text('div', `저장: ${job.directory || '(다운로드 폴더)'}/${job.template}.png`, 'meta'));
     card.append(text('div', job.lastStatus ? `최근 상태: ${job.lastStatus}${job.lastAt ? ' (' + new Date(job.lastAt).toLocaleString('ko-KR') + ')' : ''}` : '아직 캡처 기록이 없습니다.', 'meta'));
     const actions = document.createElement('div'); actions.className = 'job-actions';
-    for (const [label, action] of [['지금 캡처', 'capture'], ['수정', 'edit'], ['삭제', 'delete']]) {
+    for (const [label, action] of [['탭 표시', 'view'], ['지금 캡처', 'capture'], ['수정', 'edit'], ['삭제', 'delete']]) {
       const button = text('button', label, 'secondary'); button.type = 'button'; button.onclick = async () => {
         try {
           $('message').textContent = '';
+          if (action === 'view') {
+            if (job.needsRebind || (job.needsRebind == null && job.lastStatus?.startsWith('브라우저가 다시 시작되었습니다.'))) throw new Error('수정을 눌러 대상 탭을 다시 지정하세요.');
+            await markTab(job.tabId, job.origin); return;
+          }
           if (action === 'edit') {
             editing = job.id; await tabs(job.tabId); $('prefix').value = job.prefix; $('template').value = job.template; $('directory').value = job.directory; $('mode').value = job.mode; $('minute').value = job.minute; $('interval').value = job.interval; $('enabled').checked = job.enabled; $('formTitle').textContent = '캡처 일정 수정'; $('cancel').hidden = false; modeChanged(); window.scrollTo({top: 0, behavior: 'smooth'}); return;
           }
@@ -70,7 +84,40 @@ async function render() {
   }
 }
 $('mode').addEventListener('change', modeChanged);
+$('tab').addEventListener('change', () => { showTabDetails().catch(error => { $('message').textContent = error.message; }); });
+$('showTab').addEventListener('click', async () => {
+  try { $('message').textContent = ''; if (!$('tab').value) throw new Error('확인할 탭을 선택해 주세요.'); await markTab(Number($('tab').value)); }
+  catch (error) { $('message').textContent = error.message; }
+});
 $('refresh').addEventListener('click', () => tabs($('tab').value));
+let downloadRoot = null;
+$('chooseRoot').addEventListener('click', async () => {
+  const status = $('folderMessage');
+  status.textContent = '';
+  try {
+    if (!window.showDirectoryPicker) throw new Error('이 브라우저에서는 폴더 선택을 지원하지 않습니다.');
+    const root = await window.showDirectoryPicker({id:'capture-download-root', startIn:'downloads', mode:'read'});
+    downloadRoot = root;
+    $('chooseDirectory').disabled = false;
+    status.textContent = `“${root.name}” 폴더를 선택했습니다. 2번 버튼에서 하위 폴더를 선택해 주세요.`;
+  } catch (error) {
+    status.textContent = error.name === 'AbortError' ? '폴더 선택을 취소했습니다. 기존 설정은 유지됩니다.' : error.message;
+  }
+});
+$('chooseDirectory').addEventListener('click', async () => {
+  const status = $('folderMessage');
+  try {
+    if (!downloadRoot) throw new Error('먼저 기본 다운로드 폴더를 선택해 주세요.');
+    const selected = await window.showDirectoryPicker({id:'capture-download-destination', startIn:downloadRoot, mode:'read'});
+    const parts = await downloadRoot.resolve(selected);
+    if (parts === null) throw new Error('선택한 폴더가 처음 선택한 다운로드 폴더 안에 없습니다.');
+    $('directory').value = parts.join('/');
+    status.textContent = parts.length ? `선택한 하위 폴더: ${parts.join(' / ')}` : '기본 다운로드 폴더가 선택되었습니다.';
+  } catch (error) {
+    status.textContent = error.name === 'AbortError' ? '폴더 선택을 취소했습니다. 기존 설정은 유지됩니다.' : error.message;
+  }
+});
+$('clearDirectory').addEventListener('click', () => { $('directory').value = ''; $('folderMessage').textContent = '기본 다운로드 폴더를 사용합니다.'; });
 $('reload').addEventListener('click', render);
 $('cancel').addEventListener('click', reset);
 $('form').addEventListener('submit', async e => {

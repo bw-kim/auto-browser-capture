@@ -84,6 +84,34 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
+    if (message.type === 'highlight') {
+      const tab = await chrome.tabs.get(message.tabId).catch(() => null);
+      if (!tab?.url || !/^https?:\/\//i.test(tab.url) || (message.origin && new URL(tab.url).origin !== message.origin)) throw new Error('대상 탭을 찾을 수 없습니다. 탭 목록을 새로고침해 주세요.');
+      const target = {tabId: tab.id};
+      let attached = false;
+      try {
+        await chrome.debugger.attach(target, '1.3');
+        attached = true;
+        const expression = `(() => {
+          const key = '__captureTabHighlight__';
+          if (window[key]) window[key]();
+          const marker = '🔎 ';
+          let visible = false;
+          let ticks = 0;
+          let timer;
+          const clean = () => { if (document.title.startsWith(marker)) document.title = document.title.slice(marker.length); };
+          const stop = () => { clearInterval(timer); clean(); delete window[key]; };
+          window[key] = stop;
+          const blink = () => { clean(); visible = !visible; if (visible) document.title = marker + document.title; if (++ticks >= 12) stop(); };
+          blink(); timer = setInterval(blink, 700);
+        })()`;
+        const result = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {expression, returnByValue: true});
+        if (result.exceptionDetails) throw new Error('페이지에 탭 표시를 적용하지 못했습니다.');
+      } finally {
+        if (attached) { try { await chrome.debugger.detach(target); } catch (_) {} }
+      }
+      return {ok:true};
+    }
     if (message.type === 'save') {
       const job = message.job;
       if (!job.id || !Number.isInteger(job.tabId) || !['hourly','interval'].includes(job.mode) || !Number.isInteger(job.minute) || job.minute < 0 || job.minute > 59 || !Number.isInteger(job.interval) || job.interval < 1 || job.interval > 60 || !job.template || typeof job.directory !== 'string') throw new Error('설정값을 확인하세요.');
